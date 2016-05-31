@@ -1,0 +1,9 @@
+{
+        "author": "dev@zerynth.com",
+        "description": "Endure Pisa Workshop",
+        "name": "Endure Pisa Workshop",
+        "fullname":"lib.zerynth_lab.endure",
+        "dependencies": {
+        }
+}
+
