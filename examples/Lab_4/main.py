@@ -6,8 +6,8 @@
 ################################################################################
 
 import streams
-from zerynth_lab.endure.temp_hum_click import temp_hum_click
-from zerynth_lab.endure.eight_click import eight_click
+from zerynth_lab.endure import temp_hum_click
+from zerynth_lab.endure import eight_click
  
 # Create a serial console
 streams.serial()

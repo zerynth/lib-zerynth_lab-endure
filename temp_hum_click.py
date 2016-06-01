@@ -5,7 +5,7 @@
 Temp & Hum click
 ================
 
-This module contains the :class:`TempHumClick` carries STs HTS221
+This module contains the :class:`TempHumClick` carries STs HTS221
 temperature and relative humidity sensor. Its highlight is that it
 outputs its measurement in a 16-bit resolution and has a high
 rH sensitivity of 0.004% (although the accuracy range. In comparison,
