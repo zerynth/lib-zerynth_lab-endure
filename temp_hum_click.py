@@ -1,301 +1,159 @@
 """
-.. module:: Click_8x8
+.. module:: TempHumClick
 
-*********
-Click 8x8
-*********
+================
+Temp & Hum click
+================
 
-Used with seven segment displays and 8x8 matrix of LEDs.
+This module contains the :class:`TempHumClick` carries STs HTS221
+temperature and relative humidity sensor. Its highlight is that it
+outputs its measurement in a 16-bit resolution and has a high
+rH sensitivity of 0.004% (although the accuracy range. In comparison,
+HTU21D click, HDC1000 click and SHT1x click all output a 12-14 bit
+resolution signal.
 
-    """
+**Resources**
 
-import spi
+* Datasheet: http://www.st.com/st-web-ui/static/active/en/resource/technical/document/datasheet/DM00116291.pdf
 
+* Product Page: http://www.mikroe.com/click/temp-hum/
 
-
-class LedDisplay(spi.Spi):
-    """
-.. class: LedDisplay(cs, max_devices=1, spidrv=SPI0)
-
-    Constructor takes a chip select pin *cs*, maximum number of devices attached
-    *max_devices* and which spi bus *spidrv* the unit is connected to.
-
-    At the moment only 1 device is supported.
+* Product Manual: http://www.mikroe.com/downloads/get/2383/temp_hum_click_user_manual_v100.pdf
 
     """
-    DIGIT0          = 1
-    DIGIT1          = 2
-    DIGIT2          = 3
-    DIGIT3          = 4
-    DIGIT4          = 5
-    DIGIT5          = 6
-    DIGIT6          = 7
-    DIGIT7          = 8
-    NO_OP           = 0x00
-    SHUTDOWN        = 0x0C
-    SHUTDOWN_MODE   = 0
-    SHUTDOWN_NORMAL = 1
-    DECODE_MODE     = 0x09
-    INTENSITY       = 0x0A
-    SCAN_LIMIT      = 0x0B
-    DISPLAY_TEST    = 0x0F
+
+
+import i2c
+
+
+class TempHumClick():
+    """
+
+.. class:: TempHumClick
+
+    Creates an intance of a new TempHumClick.
+
+    :param drvsel: I2C Bus used `( I2C0, I2C0 )`
+    :param int_pin: Interrupt pin used for events
+    :param address: Slave address, default 0x5f
+    :param clk: Clock speed, default 400kHz
+
+    :Example:
+
+.. code-block:: python
+
+    temp_hum = tempnhum_click.TempHumClick( I2C1,D31 )
+    temp, hum = temp_hum.get_temp_humidity()
 
     """
-    Segments to be switched on for characters and digits on
-    7-Segment Displays
-    """
-    char_table = bytes((
-        0b01111110,0b00110000,0b01101101,0b01111001,0b00110011,0b01011011,0b01011111,0b01110000,
-        0b01111111,0b01111011,0b01110111,0b00011111,0b00001101,0b00111101,0b01001111,0b01000111,
-        0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,
-        0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,
-        0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,
-        0b00000000,0b00000000,0b00000000,0b00000000,0b10000000,0b00000001,0b10000000,0b00000000,
-        0b01111110,0b00110000,0b01101101,0b01111001,0b00110011,0b01011011,0b01011111,0b01110000,
-        0b01111111,0b01111011,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,
-        0b00000000,0b01110111,0b00011111,0b00001101,0b00111101,0b01001111,0b01000111,0b00000000,
-        0b00110111,0b00000000,0b00000000,0b00000000,0b00001110,0b00000000,0b00000000,0b00000000,
-        0b01100111,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,
-        0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00001000,
-        0b00000000,0b01110111,0b00011111,0b00001101,0b00111101,0b01001111,0b01000111,0b00000000,
-        0b00110111,0b00000000,0b00000000,0b00000000,0b00001110,0b00000000,0b00010101,0b00011101,
-        0b01100111,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,
-        0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000,0b00000000
-    ,))
-
-
-    def __init__(self, cs, max_devices=1, spidrv=SPI0):
-        spi.Spi.__init__(self, cs, spidrv, clock=1000000)
-        self.max_devices = max_devices
-
-        # The array for shifting the data to the devices
-        self.spidata = bytearray(16)
-
-        # We keep track of the led-status for all 8 devices in this array
-        self.status = bytearray(64)
-
-        for i in self.status:
-            self.status[i] = 0x00
-
-        for i in range(self.max_devices):
-            self._write( i, self.DISPLAY_TEST, 0)
-            # scanlimit is set to max on startup
-            self.set_scan_limit(i, 0x07)
-            # decode is done in source
-            self._write(i, self.DECODE_MODE, 0)
-            self.clear_display(i)
-            # we go into shutdown-mode on startup
-            self.shutdown(i, True)
-
-    # Write value to BUS
-    def _write(self, address, opcode, data):
-        # Create an array with the data to shift out
-        buffer = bytearray(0)
-        offset = address * 2
-        maxbytes = self.max_devices * 2
-
-        for i in range(maxbytes):
-            self.spidata[i] = 0
-
-        # Put our device data into the array
-        self.spidata[offset+1] = opcode
-        self.spidata[offset] = data
-
-        for i in range(maxbytes, 0, -1):
-                buffer.append(self.spidata[i-1])
-
-        self.lock()
-
-        # enable the line
-        self.select()
+    def __init__(self, drvsel, int_pin, address=0x5F, clk=400000):
+        self.port = i2c.I2C(drvsel, address, clk)
+        self.H0_T0_OUT   = 0
+        self.H1_T0_OUT   = 0
+        self.T0_OUT      = 0
+        self.T1_OUT      = 0
+        self.T0_DegC_cal = 0.0
+        self.T1_DegC_cal = 0.0
+        self.H0_RH_cal   = 0.0
+        self.H1_RH_cal   = 0.0
+        self.int_pin     = int_pin
 
         try:
-            self.write(buffer)
-        except Exception as e:
+            self.port.start()
+        except PeripheralError as e:
             print(e)
-        finally:
-            self.unselect()
-            self.unlock()
 
-    def get_device_count(self):
+        pinMode(int_pin, INPUT)
+
+        self._write(0x10, 0x1B)
+        self._write(0x20, 0x85)
+        self._write(0x21, 0x00)
+        self._write(0x22, 0x00)
+        self._calibrate()
+
+    def _write(self, addr, data):
+        buffer = bytearray(1)
+        buffer[0] = addr
+        buffer.append(data)
+
+        self.port.write(buffer)
+
+    def _read(self, addr, num_bytes):
+        return self.port.write_read(addr, num_bytes)
+
+    def _linear(self,x0, y0, x1, y1, mes):
+        a = ((y1 - y0) / (x1 - x0))
+        b = (-a * x0 + y0)
+        cal = (a * mes + b)
+        return cal
+
+    def _calibrate(self):
+        tmp_data = self._read(0xB0,16)
+
+        H0_rH_x2 = tmp_data[0]
+        H1_rH_x2 = tmp_data[1]
+        T0_degC_x8 = ((tmp_data[5] & 0x03) << 8) + tmp_data[2]
+        T1_degC_x8 = ((tmp_data[5] & 0x0C) << 6) + tmp_data[3]
+
+        self.H0_T0_OUT = (tmp_data[7] << 8) + tmp_data[6]
+        self.H1_T0_OUT = (tmp_data[11] << 8) + tmp_data[10]
+        self.T0_OUT = (tmp_data[13] << 8) + tmp_data[12]
+        self.T1_OUT = (tmp_data[15] << 8) + tmp_data[14]
+
+        # convert negative 2's complement values to native negative value
+        if (self.H0_T0_OUT & 0x8000):
+            self.H0_T0_OUT = -(0x8000-(0x7fff & self.H0_T0_OUT))
+        if (self.H1_T0_OUT & 0x8000):
+            self.H1_T0_OUT = -(0x8000-(0x7fff & self.H1_T0_OUT))
+        if (self.T0_OUT & 0x8000):
+            self.T0_OUT = -(0x8000-(0x7fff & self.T0_OUT))
+        if (self.T1_OUT & 0x8000):
+            self.T1_OUT = -(0x8000-(0x7fff & self.T1_OUT))
+
+        self.T0_DegC_cal = (T0_degC_x8 / 8)
+        self.T1_DegC_cal = (T1_degC_x8 / 8)
+        self.H0_RH_cal = (H0_rH_x2 / 2)
+        self.H1_RH_cal = H1_rH_x2 / 2
+
+    def get_temp_humidity(self):
         """
-.. method:: get_device_count()
 
-            Returns the number of devices attached.
-        """
-        return self.max.devices
+.. method:: get_temp_humidity()
 
-    def shutdown(self, dev_num, powerdown):
-        """
-.. method:: shutdown(dev_num, powerdown)
+        Retrieves both temperature and humidity in one call.
 
-        *dev_num* is the device id, with 1 device on the bus, the id of the unit is 0.
-        *powerdown* is a boolean that is ``True`` or ``False``
-        """
-        if (dev_num < 0) or (dev_num >= self.max_devices):
-            return
-        if powerdown:
-            self._write(dev_num, self.SHUTDOWN, self.SHUTDOWN_MODE)
-        else:
-            self._write(dev_num, self.SHUTDOWN, self.SHUTDOWN_NORMAL)
-
-    def set_scan_limit(self, dev_num, limit):
-        """
-.. method:: set_scan_limit(dev_num, limit)
-
-        Method that is used for seven segment displays that limits the number of digits.
-
-        *dev_num* is the device id, with 1 device on the bus, the id of the unit is 0.
-        *limit* is the number of banks values 0 to 7.
-        """
-        if (dev_num < 0) or (dev_num >= self.max_devices):
-            return
-        if (limit >= 0) and (limit < 8):
-            self._write(dev_num, self.SCAN_LIMIT, limit)
-
-    def set_intensity(self, dev_num, intensity):
-        """
-.. method:: set_intensity(dev_num, intensity)
-
-        Sets the intensity of the LEDs output.
-
-        *dev_num* is the device id, with 1 device on the bus, the id of the unit is 0.
-        *intensity* is the light output intensity values 0 to 15.
-        """
-        if (dev_num < 0) or (dev_num >= self.max_devices):
-            return
-        if (intensity >= 0) and (intensity < 16):
-            self._write(dev_num, self.INTENSITY, intensity)
-
-    def clear_display(self, dev_num):
-        """
-.. method:: clear_display(dev_num)
-
-        Clears the display by setting all LEDs to 0.
-        """
-        if (dev_num < 0) or (dev_num >= self.max_devices):
-            return
-
-        offset = dev_num * 8
-
-        for i in range(8):
-            self.status[offset+i] = 0
-            self._write(dev_num, i + 1, self.status[offset+i])
-
-
-    def set_led(self, dev_num, row, column, state):
-        """
-.. method:: set_led(dev_num, row, column, state)
-
-        Allows the control of a single LED. 
-        *dev_num* is the device id, with 1 device on the bus, the id of the unit is 0.
-        *row* is the row 0 to 7
-        *column* is the column 0 to 7
-        *state* is ``True`` for ON, and ``False`` for OFF
-        """
-        if (dev_num < 0) or (dev_num >= self.max_devices):
-            return
-        if (row < 0) or (row > 7) or (column < 0) or (column > 7):
-            return
-
-        offset = dev_num * 8
-        val = 0x80 >> column;
-
-        if state:
-            self.status[offset + row] = self.status[offset+row] | val
-        else:
-            val =~ val
-            self.status[offset+row] = self.status[offset+row] & val
-
-        self._write( dev_num, row + 1, self.status[offset+row])
-
-
-    def set_row(self, dev_num, row, value):
-        """
-.. method:: set_row(dev_num, row, value)
-
-        Controls an entire row.
-        *dev_num* is the device id, with 1 device on the bus, the id of the unit is 0.
-        *row* to control, values from 0 to 7
-        *value* is ``True`` for ON or ``False`` for OFF.
-        """
-        if (dev_num < 0) or (dev_num >= self.max_devices):
-            return
-        if (row < 0) or row:
-            return
-
-        offset = dev_num * 8
-        self.status[offset+row] = value
-        self._write(dev_num, row + 1, self.status[offset+row])
-
-
-    def set_column(self, dev_num, col, value):
-        """
-.. method:: set_column(dev_num, col, value)
-
-        Controls and entire column.0
-        *dev_num* is the device id, with 1 device on the bus, the id of the unit is 0.
-        *col* to control, values from 0 to 7
-        *value* is ``True`` for ON or ``False`` for OFF.
-        """
-        val = 0x00
-
-        if (dev_num < 0) or (dev_num >= self.max_devices):
-            return
-        if (col < 0) or (col > 7):
-            return
-        for row in range(8):
-            val = value >> (7 - row)
-            val = val & 0x01
-            self.set_led(dev_num, row, col, val)
-
-    def set_digit(self, dev_num, digit, value, dp):
-        """
-..method:: set_digit(dev_num, digit, value, dp)
-
-        Used with 7 segment displays to set a digit to display on the 7 segments.
-
-        *dev_num* is the device id, with 1 device on the bus, the id of the unit is 0.
-        *digit* is the bank from 0 to 7 to display
-        *value* is the number value
-        *dp* is the decimal point
+        returns temp, humidity
 
         """
-        if (dev_num < 0) or (dev_num >= self.max_devices):
-            return
-        if (digit < 0) or (digit > 7) or (value > 15):
-            return
-        offset = dev_num * 8
-        v = self.char_table[value]
+        MAXTEMP = 120
+        MINTEMP = -40
+        MAXHUMI = 100
+        MINHUMI = 0
 
-        if dp:
-            v |= 0x80
-        self.status[offset+digit] = v
-        self._write(dev_num, digit + 1, v)
+        tmp_data = self._read(0xA8, 4)
 
-    def set_char(self, dev_num, digit, value, on_off):
-        """
-..method:: set_char(dev_num, digit, value, on_off)
+        hum_raw = (tmp_data[1] << 8) + tmp_data[0]
+        temp_raw = (tmp_data[3] << 8) + tmp_data[2]
 
-        *dev_num* is the device id, with 1 device on the bus, the id of the unit is 0.
-        *digit* bank from 0 to 7
-        *value* is the character value.
-        *on_off* is ``True`` for ON and ``False`` for OFF
-        """
-        if (dev_num < 0) or (dev_num >= self.max_devices):
-            return
-        if (digit < 0) or (digit > 7):
-            return
-        offset = dev_num * 8
-        index = value
+        if (hum_raw & 0x8000):
+            hum_raw = -(0x8000 - (0x7fff & hum_raw))
+        if (temp_raw & 0x8000):
+            temp_raw = -(0x8000 - (0x7fff & temp_raw))
 
-        if index > 127:
-            #no defined beyond index 127, so we use the space char
-            index = 32
+        temp = self._linear(self.T0_OUT, self.T0_DegC_cal, self.T1_OUT, self.T1_DegC_cal, temp_raw)
+        hum  = self._linear(self.H0_T0_OUT, self.H0_RH_cal, self.H1_T0_OUT, self.H1_RH_cal, hum_raw)
+        # Constraint for measurement after calibration
+        if hum > (MAXHUMI - 1): # | hum ==- 72):
+            hum = MAXHUMI
+        if hum < MINHUMI:
+            hum = MINHUMI
+        if temp > (MAXTEMP - 1):
+            temp = MAXTEMP
+        if temp < MINTEMP:
+            temp = MINTEMP
+        temp += 22
 
-        v = self.char_table[index]
+        return temp, hum
 
-        if on_off:
-            v |= 0x80
-        self.status[offset+digit] = v
-        self._write(dev_num, digit+1, v)
+
+
